@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Real-time License Plate Detection</title>
+    <style>
+        /* CSS styles */
+body {background-color: lightblue;}
+
+        #resultImageContainer {
+
+            height: auto;
+            width: 200px;
+            position: absolute;
+            right: 180px;
+            top: 300px;
+        }
+
+        #detectedFrameContainer {
+
+            height: auto;
+            width: 640px;
+        }
+
+        #binaryImageContainer {
+
+            width: 200px;
+            position: absolute;
+            right: 180px;
+            top: 150px;
+        }
+
+        .heading {
+            position: absolute;
+            right: 415px;
+            top: 150px;
+        }
+
+        .heading2 {
+            position: absolute;
+            right: 415px;
+            top: 300px;
+        }
+
+        #indicationText {
+            position: absolute;
+            right: 10px;
+            top: 10px;
+            font-weight: bold;
+            color: red;
+            display: none;
+        }
+        #detectedText{
+  background-color: yellow;
+        }
+    </style>
+</head>
+<body>
+    <h1>Real-time License Plate Detection</h1>
+    <h2>Detected Text: <span id="detectedText"></span></h2>
+    <div id="detectedFrameContainer">
+        <img id="detectedFrame">
+    </div>
+    <h1 class="heading">Binary Image</h1>
+    <div id="binaryImageContainer">
+        <div id="binaryImagePlaceholder"></div> <!-- Placeholder for binary image -->
+    </div>
+
+    <h1 class="heading2">Result image</h1>
+    <div id="resultImageContainer">
+
+    </div>
+
+    <div id="indicationText">Working...</div>
+
+    <script>
+        // Get detected frame, binary image, and result image elements
+        let detectedFrame = document.getElementById('detectedFrame');
+        let binaryImageContainer = document.getElementById('binaryImageContainer');
+        let binaryImagePlaceholder = document.getElementById('binaryImagePlaceholder');
+        let resultImageContainer = document.getElementById('resultImageContainer');
+        let resultImagePlaceholder = document.getElementById('resultImagePlaceholder');
+        let detectedText = document.getElementById('detectedText');
+        let indicationText = document.getElementById('indicationText');
+
+        // Variables for detection state
+        let isDetecting = true; // Start detection automatically
+        let detectionTimeout; // Timeout ID for clearing detected text
+        let isTextDisplayed = false; // Flag to track if text is currently displayed
+
+        // Helper function to start license plate detection
+        async function startLicensePlateDetection() {
+            try {
+                let video = document.createElement('video');
+                video.setAttribute('autoplay', 'true');
+
+                // Capture video frames
+                video.addEventListener('loadedmetadata', () => {
+                    let canvas = document.createElement('canvas');
+                    let context = canvas.getContext('2d');
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+
+                    setInterval(() => {
+                        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                        let imageDataUrl = canvas.toDataURL();
+
+                        // Send image data URL to the server for license plate detection
+                        fetch('/detect_license_plate', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ image_data_url: imageDataUrl })
+                        })
+                            .then(response => response.json())
+                            .then(data => {
+                                // Display the detected frame
+                                detectedFrame.src = 'data:image/jpeg;base64,' + data.detected_frame_data;
+
+                                if (isTextDisplayed && data.detected_text) {
+                                    // If text is currently displayed and there is detected text, update it
+                                    detectedText.textContent = data.detected_text;
+                                }
+
+                                clearTimeout(detectionTimeout); // Clear previous timeout
+
+                                if (data.detected_text) {
+                                    // Detected text is available
+                                    isTextDisplayed = true;
+                                    detectionTimeout = setTimeout(() => {
+                                        detectedText.textContent = ''; // Clear detected text after 3 seconds (adjust as needed)
+                                        isTextDisplayed = false;
+                                    }, 190); // Set timeout to 3 seconds (adjust as needed)
+                                }
+
+                                if (data.binary_image_data) {
+                                    // Display the binary image
+                                    binaryImageContainer.innerHTML = ''; // Clear the placeholder
+                                    let binaryImage = document.createElement('img');
+                                    binaryImage.src = 'data:image/jpeg;base64,' + data.binary_image_data;
+                                    binaryImageContainer.appendChild(binaryImage);
+                                } else {
+                                    // Binary image not available
+                                    binaryImageContainer.innerHTML = ''; // Clear the previous image
+                                    binaryImageContainer.appendChild(binaryImagePlaceholder);
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error detecting license plate:', error);
+                            });
+                    }, 190); // Set interval delay to 190 milliseconds (adjust as needed)
+                });
+
+                navigator.mediaDevices.getUserMedia({ video: true })
+                    .then(stream => {
+                        video.srcObject = stream;
+                        video.play();
+                    })
+                    .catch(error => {
+                        console.error('Error accessing camera:', error);
+                    });
+            } catch (error) {
+                console.error('Error starting license plate detection:', error);
+            }
+        }
+
+        // Fetch and display the binary image when 'f' key is pressed
+        document.addEventListener('keypress', (event) => {
+            if (event.key === 'f') {
+                fetch('/get_binary_image')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.image_data) {
+                            resultImageContainer.innerHTML = ''; // Clear the placeholder
+                            let binaryImage = document.createElement('img');
+                            binaryImage.src = 'data:image/jpeg;base64,' + data.image_data;
+                            resultImageContainer.appendChild(binaryImage);
+                        } else {
+                            // Binary image not available
+                            resultImageContainer.innerHTML = ''; // Clear the previous image
+                            let resultImagePlaceholder = document.createElement('div');
+                            resultImagePlaceholder.innerText = 'No binary image available';
+                            resultImageContainer.appendChild(resultImagePlaceholder);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching binary image:', error);
+                    });
+            }
+        });
+
+        // Toggle the display of detected text and indication when 'd' key is pressed
+        document.addEventListener('keypress', (event) => {
+            if (event.key === 'd') {
+                isTextDisplayed = !isTextDisplayed;
+                indicationText.style.display = isTextDisplayed ? 'block' : 'none';
+            }
+        });
+
+        // Start license plate detection when the page loads
+        window.addEventListener('load', () => {
+            startLicensePlateDetection();
+        });
+    </script>
+</body>
+</html>
